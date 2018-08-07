@@ -99,6 +99,7 @@ function makeBaseRecords(request) {
     rslts.forEach(function (rec) {
         var emp = {};
         emp.employee = rec.getText('employee');
+        emp.startDate = startDate;
         emp.date = rec.getValue('date');
         emp.durationdecimal = rec.getValue('durationdecimal');
         emp.workplace = rec.getText('workplace', 'employee');
@@ -126,6 +127,7 @@ function empTimeEntries(arry) {
             if (rec.employee === empId) {
                 obj.caGroup = rec.caGroup;
                 timeObj.date = rec.date;
+                timeObj.day_num = setDayNumber(rec.date, rec.startDate);
                 timeObj.time = rec.durationdecimal;
                 obj.timeEntries.push(timeObj);
             }
@@ -135,55 +137,10 @@ function empTimeEntries(arry) {
     return empTimeArry;
 }
 
-function getWeekTwoStart(startDate) {
-    var dt = nlapiStringToDate(startDate);
-    return nlapiAddDays(dt, 7);
-}
-
-function setWeekSegment(timeEntryDate, startDate) {
-    var weekTwoStart = getWeekTwoStart(startDate);
+function setDayNumber(timeEntryDate, startDate) {
+    var start = nlapiStringToDate(startDate);
     var entryDate = nlapiStringToDate(timeEntryDate);
-    return (entryDate < weekTwoStart) ? 1 : 2;
-}
-
-// ***set day number functions
-
-function setDayNumber(dt) {
-    var day = {};
-    day.Two = nlapiAddDays(dt, 1);
-    day.Three = nlapiAddDays(dt, 2);
-    day.Four = nlapiAddDays(dt, 3);
-    day.Five = nlapiAddDays(dt, 4);
-    day.Six = nlapiAddDays(dt, 5);
-    day.Seven = nlapiAddDays(dt, 6);
-    day.forEach(function (entryDate) {
-        if (entryDate < day.Two) {
-            return 1;
-        }
-        else if (entryDate < day.Three) {
-            return 2;
-        }
-        else if (entryDate < day.Four) {
-            return 3;
-        }
-        else if (entryDate < day.Five) {
-            return 4;
-        }
-        else if (entryDate < day.Six) {
-            return 5;
-        }
-        else if (entryDate < day.Seven) {
-            return 6;
-        }
-        else {
-            return 7;
-        }
-    });
-}
-
-// ***determining isSeventhConsec???
-function isSeventhConsec(timeObj) {
-
+    return ((entryDate - start) / 86400000);
 }
 
 function sumAndSegmentTime(arry, periodStartDate) {
@@ -198,20 +155,14 @@ function sumAndSegmentTime(arry, periodStartDate) {
         dateList.forEach(function (dt) {
             var sumByDateObj = {};
             sumByDateObj.date = dt;
-            sumByDateObj.week_num = 0;
-            // ***day of week number
-            sumByDateObj.day_num = 0;
             sumByDateObj.total_hrs = 0;
             empRec.timeEntries.forEach(function (timeRec) {
                 var duration = parseFloat(timeRec.time);
                 if (timeRec.date === dt) {
                     sumByDateObj.total_hrs += duration;
+                    sumByDateObj.day_num = timeRec.day_num;
                 }
             });
-            // Set the week segment ( 1 = week 1, 2 = week 2)
-            sumByDateObj.week_num = setWeekSegment(sumByDateObj.date, periodStartDate);
-            // ***Set the day number ( 1 = day 1, 2 = day 2, etc.)
-            sumByDateObj.day_num = setDayNumber(sumByDateObj.date, periodStartDate)
             obj.sumTime.push(sumByDateObj);
         });
         return obj;
@@ -226,18 +177,34 @@ function segmentByState(arry) {
         obj.reg_hrs = 0;
         obj.ot_hrs = 0;
         obj.dt_hrs = 0;
-        // ***calculate total for each day
         obj.day_one_total = 0;
         obj.day_two_total = 0;
         obj.day_three_total = 0;
         obj.day_four_total = 0;
         obj.day_five_total = 0;
         obj.day_six_total = 0;
+        obj.day_six_ot_hrs = 0;
         obj.day_seven_total = 0;
-        // ***determine if day is the seventh consecutive day worked
-        obj.is_seventh_consec = isSeventhConsec(timeObj);
+        obj.day_seven_reg_hrs = 0;
+        obj.day_seven_ot_hrs = 0;
+        obj.day_eight_total = 0;
+        obj.day_nine_total = 0;
+        obj.day_ten_total = 0;
+        obj.day_eleven_total = 0;
+        obj.day_twelve_total = 0;
+        obj.day_thirteen_total = 0;
+        obj.day_thirteen_ot_hrs = 0;
+        obj.day_fourteen_total = 0;
+        obj.day_fourteen_reg_hrs = 0;
+        obj.day_fourteen_ot_hrs = 0;
         obj.wk_one_total = 0;
+        obj.wk_one_reg_hrs = 0;
+        obj.wk_one_ot_hrs = 0;
+        obj.wk_one_dt_hrs = 0;
         obj.wk_two_total = 0;
+        obj.wk_two_reg_hrs = 0;
+        obj.wk_two_ot_hrs = 0;
+        obj.wk_two_dt_hrs = 0;
         obj.total_hrs = 0;
         obj.payrollState = '';
 
@@ -245,41 +212,45 @@ function segmentByState(arry) {
             var totHr = timeObj.total_hrs;
             var overEight = totHr - 8;
             if (empRec.caGroup) {
-                if (timeObj.is_seventh_consec === false) {
-                    if (overEight > 0) {
-                        // set the first 8 hours as regular time
-                        //obj.reg_hrs += 8;
-                        (timeObj.week_num === 1) ? obj.reg_hrs += 8 : obj.reg_hrs += 8;
-                        // Calculate the OT and DT hours
-                        if (overEight <= 4) {
-                            obj.ot_hrs += overEight;
-                        }
-                        // If the OT hours are greater than 4, we have to calc double time for California
-                        else {
-                            obj.ot_hrs += 4;
-                            obj.dt_hrs += overEight - 4;
-                        }
-                        (timeObj.week_num === 1) ? obj.wk_one_total += totHr : obj.wk_two_total += totHr;
+                if (overEight > 0) {
+                    // set the first 8 hours as regular time
+                    //obj.reg_hrs += 8;
+                    (timeObj.day_num > 6) ? obj.wk_two_reg_hrs += 8 : obj.wk_one_reg_hrs += 8;
+                    if (timeObj.day_num === 6) {obj.day_seven_reg_hrs += 8;}
+                    if (timeObj.day_num === 13) {obj.day_fourteen_reg_hrs += 8;}
+
+                    // Calculate the OT and DT hours
+                    if (overEight <= 4) {
+                        (timeObj.day_num > 6) ? obj.wk_two_ot_hrs += overEight : obj.wk_one_ot_hrs += overEight;
+                        if (timeObj.day_num === 5) {obj.day_six_ot_hrs += overEight;}
+                        if (timeObj.day_num === 6) {obj.day_seven_ot_hrs += overEight;}
+                        if (timeObj.day_num === 12) {obj.day_thirteen_ot_hrs += overEight;}
+                        if (timeObj.day_num === 13) {obj.day_fourteen_ot_hrs += overEight;}
                     }
+                    // If the OT hours are greater than 4, we have to calc double time for California
                     else {
-                        (timeObj.week_num === 1) ? obj.wk_one_total += totHr : obj.wk_two_total += totHr;
-                    }
+                        (timeObj.day_num > 6) ? obj.wk_two_dt_hrs += (overEight - 4) : obj.wk_one_dt_hrs += (overEight - 4);
+                        (timeObj.day_num > 6) ? obj.wk_two_ot_hrs += 4 : obj.wk_one_ot_hrs += 4;
+                        if (timeObj.day_num === 5) {obj.day_six_ot_hrs += 4;}
+                        if (timeObj.day_num === 6) {obj.day_seven_ot_hrs += 4;}
+                        if (timeObj.day_num === 12) {obj.day_thirteen_ot_hrs += 4;}
+                        if (timeObj.day_num === 13) {obj.day_fourteen_ot_hrs += 4;}
+                        }
+                    (timeObj.day_num > 6) ? obj.wk_two_total += totHr : obj.wk_one_total += totHr;
+                    (timeObj.day_num === 0) ? obj.day_one_total += totHr : (timeObj.day_num === 1) ? obj.day_two_total += totHr : (timeObj.day_num === 2) ? obj.day_three_total += totHr : (timeObj.day_num === 3) ? obj.day_four_total += totHr : (timeObj.day_num === 4) ? obj.day_five_total += totHr : (timeObj.day_num === 5) ? obj.day_six_total += totHr : (timeObj.day_num === 6) ? obj.day_seven_total += totHr : (timeObj.day_num === 7) ? obj.day_eight_total += totHr : (timeObj.day_num === 8) ? obj.day_nine_total += totHr :(timeObj.day_num === 9) ? obj.day_ten_total += totHr : (timeObj.day_num === 10) ? obj.day_eleven_total += totHr : (timeObj.day_num === 11) ? obj.day_twelve_total += totHr : (timeObj.day_num === 12) ? obj.day_thirteen_total += totHr : obj.day_fourteen_total += totHr;
+
                 }
                 else {
-                    // *** when timeObj is seventh consecutive day
-                    if (overEight > 0) {
-                        // Calculate the OT and DT hours
-                        obj.ot_hrs += 8;
-                        obj.dt_hrs += overEight;
-                    }
-                    else {
-                        obj.ot_hrs += tothr;
-                    }
+                    (timeObj.day_num > 6) ? obj.wk_two_total += totHr : obj.wk_one_total += totHr;
+                    (timeObj.day_num > 6) ? obj.wk_two_reg_hrs += totHr : obj.wk_one_reg_hrs += totHr;
+                    if (timeObj.day_num === 6) {obj.day_seven_reg_hrs += totHr;}
+                    if (timeObj.day_num === 13) {obj.day_fourteen_reg_hrs += totHr;}
+                    (timeObj.day_num === 0) ? obj.day_one_total += totHr : (timeObj.day_num === 1) ? obj.day_two_total += totHr : (timeObj.day_num === 2) ? obj.day_three_total += totHr : (timeObj.day_num === 3) ? obj.day_four_total += totHr : (timeObj.day_num === 4) ? obj.day_five_total += totHr : (timeObj.day_num === 5) ? obj.day_six_total += totHr : (timeObj.day_num === 6) ? obj.day_seven_total += totHr : (timeObj.day_num === 7) ? obj.day_eight_total += totHr : (timeObj.day_num === 8) ? obj.day_nine_total += totHr :(timeObj.day_num === 9) ? obj.day_ten_total += totHr : (timeObj.day_num === 10) ? obj.day_eleven_total += totHr : (timeObj.day_num === 11) ? obj.day_twelve_total += totHr : (timeObj.day_num === 12) ? obj.day_thirteen_total += totHr : obj.day_fourteen_total += totHr;
                 }
             }
             else {
                 // Not California - Calc based on total hours in 40 hr work week
-                (timeObj.week_num === 1) ? obj.wk_one_total += totHr : obj.wk_two_total += totHr;
+                (timeObj.day_num > 6) ? obj.wk_two_total += totHr : obj.wk_one_total += totHr;
             }
         });
         return obj;
@@ -289,22 +260,76 @@ function segmentByState(arry) {
 function makeFinalPayrollList(arry) {
     var list = [];
     arry.forEach(function (empRec) {
+        var wk_one_sevenconsec = false;
+        var wk_two_sevenconsec = false;
         if (empRec.caGroup) {
-            if (empRec.wk_one_total > 40) {
-                // ***still working on this
+                if (empRec.day_one_total !== 0 && empRec.day_two_total !== 0 && empRec.day_three_total !== 0 && empRec.day_four_total !== 0 && empRec.day_five_total !== 0 && empRec.day_six_total !== 0 && empRec.day_seven_total !== 0) {
+                    wk_one_sevenconsec = true;
+                    if (empRec.wk_one_reg_hrs > 40) {
+                        if ((empRec.wk_one_reg_hrs - empRec.day_seven_reg_hrs) > 40) {
+                            empRec.reg_hrs += 40;
+                            empRec.ot_hrs += ((empRec.wk_one_reg_hrs - 40) + (empRec.wk_one_ot_hrs - empRec.day_seven_ot_hrs));
+                            empRec.dt_hrs += (empRec.day_seven_ot_hrs + empRec.wk_one_dt_hrs);
+                        }
+                        else {
+                            empRec.reg_hrs += 40;
+                            empRec.ot_hrs += (empRec.wk_one_reg_hrs - 40);
+                            empRec.dt_hrs += (empRec.wk_one_dt_hrs + empRec.day_seven_ot_hrs);
+                        }
+                    }
+                    else {
+                        empRec.reg_hrs += (empRec.wk_one_reg_hrs - empRec.day_seven_reg_hrs);
+                        empRec.ot_hrs += (empRec.day_seven_reg_hrs + empRec.wk_one_ot_hrs);
+                        empRec.dt_hrs += (empRec.day_seven_ot_hrs + empRec.wk_one_dt_hrs);
+                    }
+                }
+                if (empRec.day_eight_total !== 0 && empRec.day_nine_total !== 0 && empRec.day_ten_total !== 0 && empRec.day_eleven_total !== 0 && empRec.day_twelve_total !== 0 && empRec.day_thirteen_total !== 0 && empRec.day_fourteen_total !== 0) {
+                    wk_two_sevenconsec = true;
+                    if (empRec.wk_two_reg_hrs > 40) {
+                        if ((empRec.wk_two_reg_hrs - empRec.day_fourteen_reg_hrs) > 40) {
+                            empRec.reg_hrs += 40;
+                            empRec.ot_hrs += ((empRec.wk_two_reg_hrs - 40) + (empRec.wk_two_ot_hrs - empRec.day_fourteen_ot_hrs));
+                            empRec.dt_hrs += (empRec.day_fourteen_ot_hrs + empRec.wk_two_dt_hrs);
+                        }
+                        else {
+                            empRec.reg_hrs += 40;
+                            empRec.ot_hrs += (((empRec.wk_two_reg_hrs - empRec.day_fourteen_reg_hrs) - 40) + empRec.day_fourteen_reg_hrs);
+                            empRec.dt_hrs += (empRec.wk_two_dt_hrs + empRec.day_fourteen_ot_hrs);
+                        }
+                    }
+                    else {
+                        empRec.reg_hrs += (empRec.wk_two_reg_hrs - empRec.day_fourteen_reg_hrs);
+                        empRec.ot_hrs += (empRec.day_fourteen_reg_hrs + empRec.wk_two_ot_hrs);
+                        empRec.dt_hrs += (empRec.day_fourteen_ot_hrs + empRec.wk_two_dt_hrs);
+                    }
+                }
+                else {
+                    if (empRec.wk_one_reg_hrs > 40 && !wk_one_sevenconsec) {
+                        // CA week one reg hours is > 40 hrs and not seven consecutive days
+                        empRec.reg_hrs += 40;
+                        empRec.ot_hrs += ((empRec.wk_one_reg_hrs - 40) + empRec.wk_one_ot_hrs);
+                        empRec.dt_hrs += empRec.wk_one_dt_hrs;
+                    }
+                    if (empRec.wk_two_reg_hrs > 40 && !wk_two_sevenconsec) {
+                        // CA week two reg hours is > 40 hrs and not seven consecutive days
+                        empRec.reg_hrs += 40;
+                        empRec.ot_hrs += ((empRec.wk_two_reg_hrs - 40) + empRec.wk_two_ot_hrs);
+                        empRec.dt_hrs += empRec.wk_two_dt_hrs;
+                    }
+                    if (empRec.wk_one_reg_hrs <= 40 && !wk_one_sevenconsec) {
+                        // CA week one reg hours is 40 hrs or less and not seven consecutive days
+                        empRec.reg_hrs += empRec.wk_one_reg_hrs;
+                        empRec.ot_hrs += empRec.wk_one_ot_hrs;
+                        empRec.dt_hrs += empRec.wk_one_dt_hrs;
+                    }
+                    if (empRec.wk_two_reg_hrs <= 40 && !wk_two_sevenconsec) {
+                        // CA week one reg hours is 40 hrs or less and not seven consecutive days
+                        empRec.reg_hrs += empRec.wk_two_reg_hrs;
+                        empRec.ot_hrs += empRec.wk_two_ot_hrs;
+                        empRec.dt_hrs += empRec.wk_two_dt_hrs;
+                    }
+                }
             }
-            else {
-                // CA week one total is 40 hrs or less
-                empRec.reg_hrs += empRec.wk_one_total;
-            }
-            if (empRec.wk_two_total > 40) {
-                // ***still working on this
-            }
-            else {
-                // CA week one total is 40 hrs or less
-                empRec.reg_hrs += empRec.wk_two_total;
-            }
-        }
         else {
             // Pay calc outside of California
             if (empRec.wk_one_total > 40) {
@@ -336,9 +361,12 @@ function calcOvertime(request) {
     //addCaliforniaLocations(baseData);
     // Create the time array for each employee
     var empList = empTimeEntries(baseData);
+    nlapiLogExecution('DEBUG', 'empTimeEntries', JSON.stringify(empList[4], null, 2));
     var sumList = sumAndSegmentTime(empList, startDate);
+    nlapiLogExecution('DEBUG', 'sumAndSegmentTime', JSON.stringify(sumList[4], null, 2));
     var segmentStateList = segmentByState(sumList);
     var finalList = makeFinalPayrollList(segmentStateList);
+    nlapiLogExecution('DEBUG', 'makeFinalPayrollList', JSON.stringify(finalList[4], null, 2));
 
     return finalList;
 }
@@ -380,6 +408,8 @@ function overtimeResultsForm(request, response) {
     var formatResults = formattedResults(rslts);
     var form = nlapiCreateList('Payroll Overtime Calculation Results', false);
     // Set the display columns
+
+    form.addButton('custpage_csv','Export Results as CSV', 'script');
     form.addColumn('employee', 'text', 'Employee');
     form.addColumn('reg_hours', 'float', 'Regular Hours');
     form.addColumn('ot_hours', 'float', 'Overtime Hours');
@@ -388,6 +418,7 @@ function overtimeResultsForm(request, response) {
     form.addColumn('pay_state', 'text', 'State');
 
     form.addRows(formatResults);
+
 
     return form;
 }
